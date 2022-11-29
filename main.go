@@ -1,14 +1,23 @@
 package main
 
 import (
-	"encoding/json"
 	"log"
 	"math/rand"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  4096,
+	WriteBufferSize: 4096,
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		return origin == "http://127.0.0.1:8080" // Allow only site origin
+	},
+}
 
 // Filter unique random numbers and send to output channel
 func uniqueNumbersGen(numbersGen chan int, outputNumbersGen chan int, count int, quit chan struct{}) {
@@ -57,49 +66,60 @@ func generateRandomNumbers(countNumbers int, threadsCount int) <-chan int {
 	return outputNumbersGen
 }
 
-// Render JSON response
-func renderJson(w http.ResponseWriter, v interface{}) {
-	js, err := json.Marshal(v)
+// Create socket random generator numbers handler
+func getRandomGenerator(w http.ResponseWriter, r *http.Request) {
+	connection, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Upgrade connection from %s error", r.RemoteAddr)
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(js)
+	go generatorListener(connection)
 }
 
-// Generate random numbers handler
-func getRandom(w http.ResponseWriter, r *http.Request) {
-	err := r.ParseMultipartForm(1 << 10) // 1kb form limit
-	if err != nil {
-		log.Println(err)
-		renderJson(w, make([]int, 0))
-		return
-	}
+// listen options and generate random numbers
+func generatorListener(connection *websocket.Conn) {
+	defer connection.Close()
 
-	countNumbers, err := strconv.Atoi(r.PostFormValue("countNumbers"))
-	if err != nil || countNumbers < 1 || countNumbers > 2147483647 {
-		log.Println(err)
-		renderJson(w, make([]int, 0))
-		return
+	type generatorOptions struct {
+		CountNumbers int `json:"countNumbers"`
+		CountThreads int `json:"countThreads"`
 	}
+	type generatorResult struct {
+		Ok     bool   `json:"ok"`
+		Err    string `json:"err"`
+		Result []int  `json:"result"`
+	}
+	for {
+		var message generatorOptions
+		err := connection.ReadJSON(&message)
 
-	countThreads, err := strconv.Atoi(r.PostFormValue("countThreads"))
-	if err != nil || countThreads < 1 || countThreads > 32 {
-		log.Println(err)
-		renderJson(w, make([]int, 0))
-		return
-	}
+		if err != nil {
+			log.Println(err)
+			break // Break cycle and close connection if error
+		}
+		var response generatorResult
 
-	// Read random unique numbers from channel
-	var numbers []int
-	numbersGen := generateRandomNumbers(countNumbers, countThreads)
-	for number := range numbersGen {
-		numbers = append(numbers, number)
+		if message.CountNumbers < 1 || message.CountNumbers > 2147483647 {
+			response.Ok = false
+			response.Err = "Кол-во чисел должно быть больше 0 и не более 2147483647"
+		} else if message.CountThreads < 1 || message.CountThreads > 32 {
+			response.Ok = false
+			response.Err = "Кол-во потоков должно быть больше 0 и не более 32"
+		} else {
+			response.Ok = true
+
+			// Read random unique numbers from channel
+			numbersGen := generateRandomNumbers(message.CountNumbers, message.CountThreads)
+			for number := range numbersGen {
+				response.Result = append(response.Result, number)
+			}
+		}
+
+		err = connection.WriteJSON(response)
+		if err != nil {
+			log.Println(err)
+		}
 	}
-	log.Println(numbers)
-	renderJson(w, numbers)
 }
 
 func main() {
@@ -107,7 +127,7 @@ func main() {
 
 	fs := http.FileServer(http.Dir("./public"))
 	http.Handle("/static/", http.StripPrefix("/static", neuter(fs)))
-	http.HandleFunc("/random", getRandom)
+	http.HandleFunc("/generator", getRandomGenerator)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "public/index.html")
 	})
