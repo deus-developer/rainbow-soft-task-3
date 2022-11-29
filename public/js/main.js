@@ -35,7 +35,6 @@
             if (!countNumbers || !countThreads) {
                 return alert('Ошибка ввода');
             }
-            console.log(`${countNumbers} ${countThreads}`)
 
             // Send random numbers generator parameters to backend
             webSocket.send(JSON.stringify({
