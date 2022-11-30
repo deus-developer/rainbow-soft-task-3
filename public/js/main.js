@@ -1,7 +1,7 @@
 (function () {
     // Open websocket connection with backend
-    var webSocket = new WebSocket('ws://127.0.0.1:8080/generator');
-    webSocket.addEventListener('message', (event) => {
+    var webSocket = new WebSocket("ws://127.0.0.1:8080/generator");
+    webSocket.addEventListener("message", (event) => {
         // Show random numbers from websocket
         var response = JSON.parse(event.data);
         if (!response) return;
@@ -9,11 +9,13 @@
             if (response.error) alert(response.error);
             return;
         }
-        document.getElementById('numbersOutput').value = response.result.join(" ");
+        
+        var resultString = response.result.join(" ");
+        document.getElementById("numbersOutput").innerHTML = resultString;
     });
-    webSocket.addEventListener('close', (event) => {
+    webSocket.addEventListener("close", (event) => {
         // Disable submit button on close websocket
-        document.querySelectorAll('.btn').forEach((element) => {
+        document.querySelectorAll(".btn").forEach((element) => {
             element.disabled = false;
         });
     });
@@ -33,7 +35,7 @@
             var countThreads = parseInt(data.get("countThreads"));
 
             if (!countNumbers || !countThreads) {
-                return alert('Ошибка ввода');
+                return alert("Ошибка ввода");
             }
 
             // Send random numbers generator parameters to backend

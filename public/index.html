@@ -13,16 +13,16 @@
     <div id="content">
         <form id="generator">
           <div class="form-field">
-            <input type="number" name="countNumbers" placeholder="Кол-во чисел" min="1" max="2147483647" required>
+            <input type="number" name="countNumbers" placeholder="Кол-во чисел" min="1" max="100000" required>
           </div>
           <div class="form-field">
-            <input type="number" name="countThreads" placeholder="Кол-во потоков" min="1" max="32" required>
+            <input type="number" name="countThreads" placeholder="Кол-во потоков" min="1" max="8" required>
           </div>
           <div class="form-field">
             <button class="btn">Generate</button>
           </div>
         </form>
-        <textarea id="numbersOutput" placeholder="Случайные числа" readonly></textarea>
+        <div id="numbersOutput"></div>
     </div>
   </body>
 </html>

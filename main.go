@@ -10,9 +10,9 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// Upgrader http to websocket
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
+	ReadBufferSize: 4096,
 	CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
 		return origin == "http://127.0.0.1:8080" // Allow only site origin
@@ -99,12 +99,12 @@ func generatorListener(connection *websocket.Conn) {
 		}
 		var response generatorResult
 
-		if message.CountNumbers < 1 || message.CountNumbers > 2147483647 {
+		if message.CountNumbers < 1 || message.CountNumbers > 100000 {
 			response.Ok = false
-			response.Err = "Кол-во чисел должно быть больше 0 и не более 2147483647"
-		} else if message.CountThreads < 1 || message.CountThreads > 32 {
+			response.Err = "Кол-во чисел должно быть больше 0 и не более 100000"
+		} else if message.CountThreads < 1 || message.CountThreads > 8 {
 			response.Ok = false
-			response.Err = "Кол-во потоков должно быть больше 0 и не более 32"
+			response.Err = "Кол-во потоков должно быть больше 0 и не более 8"
 		} else {
 			response.Ok = true
 
