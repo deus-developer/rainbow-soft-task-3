@@ -4,11 +4,26 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gorilla/schema"
 	"github.com/gorilla/websocket"
 )
+
+type generatorOptions struct {
+	CountNumbers int `schema:"countNumbers,required"`
+	CountThreads int `schema:"countThreads,required"`
+}
+
+const (
+	maxCountNumbers = 2147483647
+	maxCountThreads = 8
+)
+
+// Decoder http url query params
+var decoder = schema.NewDecoder()
 
 // Upgrader http to websocket
 var upgrader = websocket.Upgrader{
@@ -53,7 +68,7 @@ func randomGenWorker(numbersGen chan int, quit chan struct{}, maxNumberLimit int
 }
 
 // Create random generators and return filtered(uniqued) numbers channel
-func generateRandomNumbers(countNumbers int, threadsCount int) <-chan int {
+func generateRandomNumbers(countNumbers int, threadsCount int) (<-chan int, chan struct{}) {
 	numbersGen := make(chan int, threadsCount)
 	quit := make(chan struct{})
 
@@ -63,61 +78,52 @@ func generateRandomNumbers(countNumbers int, threadsCount int) <-chan int {
 
 	outputNumbersGen := make(chan int)
 	go uniqueNumbersGen(numbersGen, outputNumbersGen, countNumbers, quit)
-	return outputNumbersGen
+	return outputNumbersGen, quit
 }
 
 // Create socket random generator numbers handler
 func getRandomGenerator(w http.ResponseWriter, r *http.Request) {
+	var options generatorOptions
+
+	// Parsing generator options from GET query params
+	err := decoder.Decode(&options, r.URL.Query())
+	if err != nil {
+		http.Error(w, "Invalid generator options", 400)
+		return
+	}
+
+	if options.CountNumbers < 1 || options.CountNumbers > maxCountNumbers {
+		http.Error(w, "Invalid countNumbers", 400)
+		return
+	}
+
+	if options.CountThreads < 1 || options.CountThreads > maxCountThreads {
+		http.Error(w, "Invalid countThreads", 400)
+		return
+	}
+
 	connection, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("Upgrade connection from %s error", r.RemoteAddr)
 		return
 	}
-	go generatorListener(connection)
+
+	// Start generation numbers
+	go generatorWriter(connection, options)
 }
 
-// listen options and generate random numbers
-func generatorListener(connection *websocket.Conn) {
+// generate random numbers by options and write to websocket
+func generatorWriter(connection *websocket.Conn, options generatorOptions) {
 	defer connection.Close()
 
-	type generatorOptions struct {
-		CountNumbers int `json:"countNumbers"`
-		CountThreads int `json:"countThreads"`
-	}
-	type generatorResult struct {
-		Ok     bool   `json:"ok"`
-		Err    string `json:"err"`
-		Result []int  `json:"result"`
-	}
-	for {
-		var message generatorOptions
-		err := connection.ReadJSON(&message)
+	numbersGen, quit := generateRandomNumbers(options.CountNumbers, options.CountThreads)
 
+	for number := range numbersGen {
+		err := connection.WriteMessage(websocket.TextMessage, []byte(strconv.Itoa(number)))
 		if err != nil {
-			log.Println(err)
-			break // Break cycle and close connection if error
-		}
-		var response generatorResult
-
-		if message.CountNumbers < 1 || message.CountNumbers > 100000 {
-			response.Ok = false
-			response.Err = "Кол-во чисел должно быть больше 0 и не более 100000"
-		} else if message.CountThreads < 1 || message.CountThreads > 8 {
-			response.Ok = false
-			response.Err = "Кол-во потоков должно быть больше 0 и не более 8"
-		} else {
-			response.Ok = true
-
-			// Read random unique numbers from channel
-			numbersGen := generateRandomNumbers(message.CountNumbers, message.CountThreads)
-			for number := range numbersGen {
-				response.Result = append(response.Result, number)
-			}
-		}
-
-		err = connection.WriteJSON(response)
-		if err != nil {
-			log.Println(err)
+			// Close connection if error on write to socket
+			close(quit)
+			return
 		}
 	}
 }
